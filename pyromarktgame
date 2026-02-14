@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fireworks Mini Game</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    html, body { margin:0; height:100%; background:#07070a; overflow:hidden; font-family: Arial, sans-serif; }
+    canvas { display:block; }
+
+    .hud{
+      position:fixed; top:14px; left:14px; right:14px;
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      pointer-events:none;
+    }
+    .chip{
+      background:rgba(20,20,25,.65);
+      border:1px solid rgba(255,255,255,.10);
+      color:#fff; padding:10px 12px; border-radius:14px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      font-size:14px;
+      display:flex; gap:8px; align-items:center;
+      max-width: 60vw;
+      pointer-events:none;
+    }
+    .bar{
+      width: 160px; height: 10px; border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.10);
+    }
+    .bar > div{ height:100%; width:0%; background: linear-gradient(90deg, #ff2a2a, #ffb000); }
+
+    .hint{
+      position:fixed; bottom:14px; left:14px; right:14px;
+      display:flex; justify-content:center;
+      pointer-events:none;
+    }
+    .hint span{
+      background:rgba(20,20,25,.55);
+      border:1px solid rgba(255,255,255,.10);
+      color:#fff; padding:10px 12px; border-radius:14px;
+      backdrop-filter: blur(8px);
+      font-size:13px; opacity:.9;
+      pointer-events:none;
+    }
+
+    /* Panels */
+    .panel{
+      position:fixed; inset:0;
+      display:none;
+      align-items:center; justify-content:center;
+      padding:16px;
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(6px);
+    }
+    .card{
+      width:min(520px, 92vw);
+      background:rgba(15,15,18,.88);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      padding:16px;
+      color:#fff;
+      box-shadow: 0 18px 60px rgba(0,0,0,.55);
+    }
+    .row{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .title{ font-size:18px; font-weight:800; letter-spacing:.2px; }
+    .sub{ opacity:.85; margin-top:8px; font-size:14px; line-height:1.35; }
+    .grid{ display:grid; grid-template-columns: 1fr; gap:10px; margin-top:12px; }
+    @media (min-width: 520px){ .grid{ grid-template-columns: 1fr 1fr; } }
+
+    .item{
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:14px;
+      padding:12px;
+    }
+    .item b{ display:block; margin-bottom:6px; }
+    .item .meta{ opacity:.85; font-size:13px; line-height:1.25; }
+    .item .buyrow{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:10px; }
+    .btn{
+      border:0; border-radius:14px; padding:12px 14px;
+      font-size:14px; font-weight:800; color:#fff; cursor:pointer;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .btn.primary{ background: linear-gradient(90deg, #ff2a2a, #ffb000); }
+    .btn.ghost{ background: rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.16); }
+    .btn.danger{ background: rgba(255,42,42,.20); border:1px solid rgba(255,42,42,.35); }
+    .btn.small{ padding:10px 12px; font-size:13px; border-radius:12px; }
+    .topActions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+
+    .toast{
+      position:fixed; left:50%; top:74px; transform:translateX(-50%);
+      background: rgba(20,20,25,.78);
+      border:1px solid rgba(255,255,255,.12);
+      color:#fff;
+      padding:10px 12px;
+      border-radius:14px;
+      font-size:13px;
+      opacity:0; pointer-events:none;
+      transition: opacity .2s ease;
+      backdrop-filter: blur(8px);
+    }
+
+    .mini{
+      opacity:.85; font-size:13px;
+    }
+
+    /* Top nav buttons */
+    .navButtons{
+      position:fixed; top:64px; right:14px;
+      display:flex; flex-direction:column; gap:10px;
+      pointer-events:auto;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div class="hud">
+    <div class="chip">🎆 <b>Score</b>: <span id="score">0</span> <span style="opacity:.7">•</span> 💰 <b>Coins</b>: <span id="coins">0</span></div>
+    <div class="chip" style="justify-content:flex-end;">
+      <span style="opacity:.85">Unlock</span>
+      <div class="bar"><div id="fill"></div></div>
+      <span id="need" style="opacity:.85">0%</span>
+    </div>
+  </div>
+
+  <div class="navButtons">
+    <button class="btn ghost small" id="shopBtn">🛒 Shop</button>
+    <button class="btn ghost small" id="invBtn">🎒 Inventory</button>
+    <button class="btn ghost small" id="missionsBtn">🏁 Missies</button>
+  </div>
+
+  <div class="hint"><span>Tik op het scherm om vuurwerk te schieten. Snelle taps = combo ✨</span></div>
+  <div class="toast" id="toast"></div>
+
+  <!-- Start/Unlock panel -->
+  <div class="panel" id="startPanel" style="display:flex;">
+    <div class="card">
+      <div class="row">
+        <div class="title">🔥 Fireworks Portal</div>
+        <button class="btn ghost small" id="hapticsBtn">Haptics: aan</button>
+      </div>
+      <div class="sub">
+        Tik om vuurwerk te laten knallen en coins te verdienen.<br>
+        Haal <b id="targetTxt">120</b> score om toegang te unlocken.
+      </div>
+      <div class="topActions">
+        <button class="btn primary" id="playBtn">Start</button>
+        <button class="btn ghost" id="howBtn">Hoe werkt het?</button>
+      </div>
+      <div class="mini" style="margin-top:10px;">
+        Tip: koop upgrades in de Shop om harder te knallen.
+      </div>
+    </div>
+  </div>
+
+  <!-- How panel -->
+  <div class="panel" id="howPanel">
+    <div class="card">
+      <div class="row">
+        <div class="title">📌 Uitleg</div>
+        <button class="btn ghost small" onclick="closePanel('howPanel')">Sluit</button>
+      </div>
+      <div class="sub">
+        - Tik = vuurwerk + score + coins<br>
+        - Snelle taps = combo → meer power & extra coins<br>
+        - Shop items maken je explosies groter / combo langer<br>
+        - Missies geven vaste rewards (geen gokken)<br>
+        - Bij 100% unlock: knop om door te gaan in de bot
+      </div>
+      <div class="topActions">
+        <button class="btn primary" onclick="closePanel('howPanel')">Oké</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shop panel -->
+  <div class="panel" id="shopPanel">
+    <div class="card">
+      <div class="row">
+        <div class="title">🛒 Shop</div>
+        <button class="btn ghost small" onclick="closePanel('shopPanel')">Sluit</button>
+      </div>
+      <div class="sub">Koop items met coins. Alles is skill-based, geen random loot.</div>
+      <div class="grid" id="shopGrid"></div>
+    </div>
+  </div>
+
+  <!-- Inventory panel -->
+  <div class="panel" id="invPanel">
+    <div class="card">
+      <div class="row">
+        <div class="title">🎒 Inventory</div>
+        <button class="btn ghost small" onclick="closePanel('invPanel')">Sluit</button>
+      </div>
+      <div class="sub">Dit heb je unlocked/bekocht.</div>
+      <div class="grid" id="invGrid"></div>
+      <div class="topActions">
+        <button class="btn danger" id="resetBtn">Reset progress</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Missions panel -->
+  <div class="panel" id="missionsPanel">
+    <div class="card">
+      <div class="row">
+        <div class="title">🏁 Missies</div>
+        <button class="btn ghost small" onclick="closePanel('missionsPanel')">Sluit</button>
+      </div>
+      <div class="sub">Vaste rewards. Geen gokken.</div>
+      <div class="grid" id="missionsGrid"></div>
+    </div>
+  </div>
+
+  <!-- Unlock panel -->
+  <div class="panel" id="unlockPanel">
+    <div class="card">
+      <div class="row">
+        <div class="title">✅ Toegang unlocked</div>
+        <button class="btn ghost small" onclick="closePanel('unlockPanel')">Sluit</button>
+      </div>
+      <div class="sub">
+        Je hebt genoeg score.<br>
+        Volgende stap: stuur je verificatie in de bot chat.
+      </div>
+      <div class="topActions">
+        <button class="btn primary" id="toBotBtn">Ga naar bot chat</button>
+        <button class="btn ghost" id="playAgainBtn">Speel nogmaals</button>
+      </div>
+      <div class="mini" style="margin-top:8px; opacity:.8">
+        *Anoniem zichtbaar: we tonen geen naam/username in de app.
+      </div>
+    </div>
+  </div>
+
+<script>
+  // Telegram
+  const tg = window.Telegram?.WebApp;
+  if (tg) tg.expand();
+
+  // Canvas
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W=0,H=0,dpr=1;
+  function resize(){
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W*dpr);
+    canvas.height = Math.floor(H*dpr);
+    canvas.style.width = W+'px';
+    canvas.style.height = H+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // UI refs
+  const scoreEl = document.getElementById('score');
+  const coinsEl = document.getElementById('coins');
+  const fillEl  = document.getElementById('fill');
+  const needEl  = document.getElementById('need');
+  const toastEl = document.getElementById('toast');
+
+  const targetTxt = document.getElementById('targetTxt');
+  const startPanel = document.getElementById('startPanel');
+  const unlockPanel = document.getElementById('unlockPanel');
+  const howPanel = document.getElementById('howPanel');
+  const shopPanel = document.getElementById('shopPanel');
+  const invPanel = document.getElementById('invPanel');
+  const missionsPanel = document.getElementById('missionsPanel');
+
+  const playBtn = document.getElementById('playBtn');
+  const howBtn = document.getElementById('howBtn');
+  const hapticsBtn = document.getElementById('hapticsBtn');
+
+  const shopBtn = document.getElementById('shopBtn');
+  const invBtn = document.getElementById('invBtn');
+  const missionsBtn = document.getElementById('missionsBtn');
+
+  const toBotBtn = document.getElementById('toBotBtn');
+  const playAgainBtn = document.getElementById('playAgainBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  const shopGrid = document.getElementById('shopGrid');
+  const invGrid = document.getElementById('invGrid');
+  const missionsGrid = document.getElementById('missionsGrid');
+
+  // Game config
+  const TARGET = 120;
+  targetTxt.textContent = TARGET;
+
+  // Persist (localStorage)
+  const KEY = "fw_game_v1";
+  const todayKey = () => new Date().toISOString().slice(0,10);
+
+  const defaultState = () => ({
+    score: 0,
+    coins: 0,
+    owned: {
+      biggerBurst: false,
+      longCombo: false,
+      goldTrail: false,
+      megaRocket: false,
+    },
+    rewards: {
+      milestone100: false,
+      milestone300: false,
+      daily: { date: todayKey(), done: false }
+    },
+    settings: { haptics: true }
+  });
+
+  let state = loadState();
+
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(KEY);
+      if(!raw) return defaultState();
+      const s = JSON.parse(raw);
+
+      // daily reset
+      if(!s.rewards?.daily || s.rewards.daily.date !== todayKey()){
+        s.rewards = s.rewards || {};
+        s.rewards.daily = { date: todayKey(), done: false };
+      }
+      // fill missing
+      return {
+        ...defaultState(),
+        ...s,
+        owned: { ...defaultState().owned, ...(s.owned||{}) },
+        rewards: { ...defaultState().rewards, ...(s.rewards||{}) },
+        settings: { ...defaultState().settings, ...(s.settings||{}) }
+      };
+    }catch{
+      return defaultState();
+    }
+  }
+  function saveState(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  // Haptics
+  let haptics = !!state.settings.haptics;
+  hapticsBtn.textContent = `Haptics: ${haptics ? "aan" : "uit"}`;
+
+  function buzz(type="light"){
+    if(!haptics) return;
+    if(tg && tg.HapticFeedback){
+      const t = (type==="medium"||type==="heavy") ? type : "light";
+      tg.HapticFeedback.impactOccurred(t);
+    }
+  }
+
+  hapticsBtn.addEventListener('click', ()=>{
+    haptics = !haptics;
+    state.settings.haptics = haptics;
+    hapticsBtn.textContent = `Haptics: ${haptics ? "aan" : "uit"}`;
+    saveState();
+    buzz("light");
+  });
+
+  // Toast
+  let toastTimer = null;
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.style.opacity = 1;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> toastEl.style.opacity = 0, 1200);
+  }
+
+  // Panels
+  function openPanel(id){
+    document.getElementById(id).style.display = "flex";
+    buzz("light");
+  }
+  function closePanel(id){
+    document.getElementById(id).style.display = "none";
+  }
+  window.closePanel = closePanel;
+
+  // Buttons
+  howBtn.onclick = ()=> openPanel('howPanel');
+  playBtn.onclick = startGame;
+
+  shopBtn.onclick = ()=> { renderShop(); openPanel('shopPanel'); };
+  invBtn.onclick = ()=> { renderInv(); openPanel('invPanel'); };
+  missionsBtn.onclick = ()=> { renderMissions(); openPanel('missionsPanel'); };
+
+  toBotBtn.onclick = ()=>{
+    if(tg){
+      tg.showAlert("Stuur je verificatie in de bot chat. Daarna krijg je betaalinstructies.");
+    } else {
+      alert("Open dit via Telegram om door te gaan.");
+    }
+  };
+
+  playAgainBtn.onclick = ()=>{
+    resetRoundOnly();
+    closePanel('unlockPanel');
+    startGame();
+  };
+
+  resetBtn.onclick = ()=>{
+    // hard reset
+    state = defaultState();
+    saveState();
+    applyStateToUI();
+    renderInv();
+    toast("Progress gereset.");
+    buzz("medium");
+  };
+
+  // Shop items (coins only)
+  const shopItems = [
+    {
+      id: "biggerBurst",
+      name: "Bigger Burst",
+      desc: "Grotere explosie + meer particles per tik.",
+      price: 120,
+      effect: "Explosion +25%"
+    },
+    {
+      id: "longCombo",
+      name: "Combo Booster",
+      desc: "Combo time window langer → makkelijker hoge combo.",
+      price: 160,
+      effect: "Combo window +250ms"
+    },
+    {
+      id: "goldTrail",
+      name: "Gold Trail",
+      desc: "Luxe glitter trail effect.",
+      price: 90,
+      effect: "Cosmetic"
+    },
+    {
+      id: "megaRocket",
+      name: "Mega Rocket",
+      desc: "Af en toe mega knal bij hoge combo.",
+      price: 220,
+      effect: "Mega bursts unlocked"
+    }
+  ];
+
+  // Missions (skill-based rewards)
+  const missions = [
+    {
+      id: "milestone100",
+      name: "Milestone: 100 score",
+      desc: "Haal 100 score in totaal.",
+      reward: "+80 coins",
+      done: () => state.rewards.milestone100,
+      check: () => state.score >= 100,
+      grant: () => { state.coins += 80; state.rewards.milestone100 = true; toast("Reward: +80 coins"); }
+    },
+    {
+      id: "milestone300",
+      name: "Milestone: 300 score",
+      desc: "Haal 300 score in totaal.",
+      reward: "Gratis item: Gold Trail",
+      done: () => state.rewards.milestone300,
+      check: () => state.score >= 300,
+      grant: () => { state.owned.goldTrail = true; state.rewards.milestone300 = true; toast("Unlocked: Gold Trail"); }
+    },
+    {
+      id: "daily",
+      name: "Daily Challenge",
+      desc: "Maak 12 taps binnen 6 seconden.",
+      reward: "+60 coins",
+      done: () => state.rewards.daily.done,
+      check: () => false, // handled live
+      grant: () => { state.coins += 60; state.rewards.daily.done = true; toast("Daily reward: +60 coins"); }
+    }
+  ];
+
+  // Daily tracking runtime
+  let dailyTapStart = 0;
+  let dailyTapCount = 0;
+
+  // State -> UI
+  function applyStateToUI(){
+    scoreEl.textContent = state.score;
+    coinsEl.textContent = state.coins;
+
+    const pct = Math.min(100, Math.floor((state.score / TARGET) * 100));
+    fillEl.style.width = pct + "%";
+    needEl.textContent = pct + "%";
+
+    saveState();
+  }
+  applyStateToUI();
+
+  // Game loop
+  let running = false;
+  let lastTapT = 0;
+  let combo = 0;
+
+  // Particles
+  const particles = [];
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  function getComboWindow(){
+    return 350 + (state.owned.longCombo ? 250 : 0);
+  }
+
+  function spawnFirework(x,y){
+    if(!running) return;
+
+    // Combo
+    const now = Date.now();
+    const windowMs = getComboWindow();
+    if(now - lastTapT < windowMs) combo = Math.min(14, combo+1);
+    else combo = 0;
+    lastTapT = now;
+
+    // Daily challenge (12 taps in 6s)
+    if(!state.rewards.daily.done){
+      if(dailyTapStart === 0 || now - dailyTapStart > 6000){
+        dailyTapStart = now;
+        dailyTapCount = 1;
+      } else {
+        dailyTapCount++;
+      }
+      if(dailyTapCount >= 12 && now - dailyTapStart <= 6000){
+        // grant daily once
+        missions.find(m=>m.id==="daily").grant();
+        dailyTapStart = 0;
+        dailyTapCount = 0;
+      }
+    }
+
+    // Score/coins gain
+    const baseAdd = 4;
+    const comboBonus = Math.floor(combo/2);
+    const addScore = baseAdd + comboBonus;
+
+    const coinGain = 1 + (combo >= 6 ? 1 : 0);
+    state.score += addScore;
+    state.coins += coinGain;
+
+    // Milestones auto-check
+    for(const m of missions){
+      if(m.id === "daily") continue;
+      if(!m.done() && m.check()){
+        m.grant();
+      }
+    }
+
+    // Unlock
+    const pct = Math.min(100, Math.floor((state.score/TARGET)*100));
+    fillEl.style.width = pct + "%";
+    needEl.textContent = pct + "%";
+    scoreEl.textContent = state.score;
+    coinsEl.textContent = state.coins;
+
+    // Explosion power
+    const basePower = 60;
+    const power = basePower + combo*10;
+    const extra = state.owned.biggerBurst ? 1.25 : 1.0;
+    const count = Math.floor((60 + combo*8) * extra);
+
+    // Cosmetic: gold trail just changes hue range
+    const hueBase = state.owned.goldTrail ? 45 : rand(0,360);
+
+    // Mega rocket chance if high combo
+    const mega = state.owned.megaRocket && combo >= 10 && Math.random() < 0.22;
+    const megaMul = mega ? 1.6 : 1.0;
+
+    if(mega){ buzz("heavy"); toast("💥 MEGA!"); }
+    else { buzz(combo >= 6 ? "medium" : "light"); }
+
+    const hue = (hueBase + rand(-20,20)) % 360;
+    for(let i=0;i<count;i++){
+      const a = (Math.PI*2) * (i/count) + rand(-0.02,0.02);
+      const sp = rand(power*0.35, power) * rand(0.65, 1.15) * megaMul;
+      const life = rand(40, 80) + combo*2 + (mega ? 18 : 0);
+      const size = rand(1.5, 3.2) + combo*0.05 + (mega ? 0.8 : 0);
+
+      particles.push({
+        x, y,
+        vx: Math.cos(a)*sp,
+        vy: Math.sin(a)*sp,
+        life,
+        maxLife: life,
+        size,
+        hue: (hue + rand(-25,25)) % 360,
+        drag: rand(0.86, 0.92),
+        gravity: rand(0.45, 0.75),
+        tw: rand(0.5, 1.2)
+      });
+    }
+
+    // Persist
+    applyStateToUI();
+
+    // Show unlock panel when reached
+    if(pct >= 100){
+      running = false;
+      openPanel('unlockPanel');
+    }
+  }
+
+  // Input
+  function getPos(evt){
+    const rect = canvas.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  function onTap(evt){
+    if(!running) return;
+    evt.preventDefault?.();
+    const p = getPos(evt);
+    spawnFirework(p.x, p.y);
+  }
+
+  canvas.addEventListener('mousedown', onTap);
+  canvas.addEventListener('touchstart', onTap, { passive:false });
+
+  // Render loop
+  function tick(){
+    ctx.fillStyle = "rgba(7,7,10,0.22)";
+    ctx.fillRect(0,0,W,H);
+
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.vx *= p.drag;
+      p.vy = p.vy * p.drag + p.gravity;
+
+      p.x += p.vx * 0.016;
+      p.y += p.vy * 0.016;
+
+      p.life -= 1;
+      const t = Math.max(0, p.life / p.maxLife);
+      const alpha = Math.min(1, (t*1.1)) * (0.9 + 0.1*Math.sin(p.life*p.tw));
+
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${alpha})`;
+      ctx.arc(p.x, p.y, p.size*(0.6+0.8*(1-t)), 0, Math.PI*2);
+      ctx.fill();
+
+      if(p.life <= 0 || p.x < -50 || p.x > W+50 || p.y < -50 || p.y > H+50){
+        particles.splice(i,1);
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+  tick();
+
+  // Shop/Inv rendering
+  function renderShop(){
+    shopGrid.innerHTML = "";
+    for(const it of shopItems){
+      const owned = !!state.owned[it.id];
+      const canBuy = state.coins >= it.price && !owned;
+
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <b>${it.name} ${owned ? "✅" : ""}</b>
+        <div class="meta">${it.desc}</div>
+        <div class="meta" style="margin-top:6px; opacity:.9">Effect: ${it.effect}</div>
+        <div class="buyrow">
+          <div class="meta">Prijs: <b>${it.price}</b> coins</div>
+          <button class="btn ${owned ? "ghost" : (canBuy ? "primary" : "ghost")} small" ${owned ? "disabled" : ""} data-id="${it.id}">
+            ${owned ? "In bezit" : (canBuy ? "Kopen" : "Te weinig coins")}
+          </button>
+        </div>
+      `;
+      shopGrid.appendChild(el);
+    }
+
+    // bind buy
+    shopGrid.querySelectorAll("button[data-id]").forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.getAttribute("data-id");
+        const item = shopItems.find(x=>x.id===id);
+        if(!item) return;
+        if(state.owned[id]) return toast("Heb je al.");
+        if(state.coins < item.price) return toast("Te weinig coins.");
+
+        state.coins -= item.price;
+        state.owned[id] = true;
+        applyStateToUI();
+        renderShop();
+        toast(`Gekocht: ${item.name}`);
+        buzz("medium");
+      };
+    });
+  }
+
+  function renderInv(){
+    invGrid.innerHTML = "";
+    const ownedList = shopItems.filter(it=>state.owned[it.id]);
+    const rewardItems = [];
+    if(state.rewards.milestone100) rewardItems.push({name:"Milestone 100", desc:"+80 coins (al ontvangen)"});
+    if(state.rewards.milestone300) rewardItems.push({name:"Milestone 300", desc:"Gold Trail unlocked"});
+    if(state.rewards.daily.done) rewardItems.push({name:`Daily (${state.rewards.daily.date})`, desc:"+60 coins (al ontvangen)"});
+
+    if(ownedList.length === 0 && rewardItems.length === 0){
+      invGrid.innerHTML = `<div class="item"><b>Nog leeg</b><div class="meta">Speel, verdien coins en koop/unlock items.</div></div>`;
+      return;
+    }
+
+    for(const it of ownedList){
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `<b>${it.name}</b><div class="meta">${it.effect}</div>`;
+      invGrid.appendChild(el);
+    }
+    for(const r of rewardItems){
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `<b>🎁 ${r.name}</b><div class="meta">${r.desc}</div>`;
+      invGrid.appendChild(el);
+    }
+  }
+
+  function renderMissions(){
+    missionsGrid.innerHTML = "";
+    for(const m of missions){
+      const done = m.done();
+      const el = document.createElement("div");
+      el.className = "item";
+      const status = done ? "✅ Klaar" : "⏳ Bezig";
+      const extra = (m.id === "daily") ? `<div class="meta" style="margin-top:6px;">Reset elke dag.</div>` : "";
+      el.innerHTML = `
+        <b>${m.name} — ${status}</b>
+        <div class="meta">${m.desc}</div>
+        <div class="meta" style="margin-top:6px;">Reward: <b>${m.reward}</b></div>
+        ${extra}
+      `;
+      missionsGrid.appendChild(el);
+    }
+  }
+
+  // Start / reset round
+  function resetRoundOnly(){
+    combo = 0;
+    lastTapT = 0;
+    dailyTapStart = 0;
+    dailyTapCount = 0;
+  }
+
+  function startGame(){
+    running = true;
+    closePanel('startPanel');
+    closePanel('unlockPanel');
+    closePanel('howPanel');
+    resetRoundOnly();
+    toast("Go!");
+    buzz("light");
+  }
+
+  // Start panel stays visible initially; user clicks Start.
+</script>
+</body>
+</html>
+
+
+
